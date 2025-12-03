@@ -17,12 +17,19 @@ class HMM_model():
         value = self.forward_algorithm(A, B, pi, emissions)
         print(value)
         
+    def run_task_2(self):
+        A,B,pi, emissions = self.initialize_parameters(2)
+        probable_emissions = self.viterbi_algorithm(A, B, pi, emissions)
+        self.output_nonvector(probable_emissions)
+        
+
+        
     def initialize_parameters(self, task_number=0):
         A = self.matrix_from_input(sys.stdin.readline())
         B = self.matrix_from_input(sys.stdin.readline())
         pi = self.matrix_from_input(sys.stdin.readline())
         pi = pi[0] #Since it only has one object
-        if task_number == 1:
+        if task_number == 1 or task_number == 2:
             emissions = self.matrix_from_input(sys.stdin.readline(), True)
             emissions = emissions[0] #Only vector
             return A, B, pi, emissions
@@ -99,11 +106,66 @@ class HMM_model():
         for value in alpha:
             total += value
         return total
+    
+    def viterbi_algorithm(self, A, B, pi, emissions):
+        delta = []
+        previous_states = []
+        n_states = len(A)
         
+        # Step 1 - initialize
         
+        emission_number = emissions[0]
+        B_column = self.column_from_B(B, emission_number)
+        delta.append(self.element_wise_product(pi, B_column))
+        previous_states.append([None]*n_states)
+        
+        # Step 2 - Iterate
+        
+        # For every emission after the first, calculate delta
+        for n in range(1, len(emissions)): 
+            delta_n, previous_state_n = self.viterbi_step_2(A, B, emissions, n, n_states, delta)
+            delta.append(delta_n)
+            previous_states.append(previous_state_n)
+
+        
+        # Step 3 - Terminate
+        
+        probable_states = []
+        
+        # Calculate most likely state at end
+        i = len(emissions)-1 #
+        most_probable_state_at_i_minus_1 = delta[i].index(max(delta[i])) 
+        probable_states.append(most_probable_state_at_i_minus_1)
+        
+        # Calculate all preceding states
+        for i in range(len(emissions)-1, 0, -1): 
+            most_probable_state = most_probable_state_at_i_minus_1 # This line exists for pedagogical purposes
+            most_probable_state_at_i_minus_1 = previous_states[i][most_probable_state] # Identifies most likely state at time i-1
+            probable_states.append(most_probable_state_at_i_minus_1) 
+        
+        # Reverse order 
+        probable_states.reverse()
+        return probable_states
+                    
         
     
+    def viterbi_step_2(self, A, B, emissions, n, n_states, delta):
+        emission = emissions[n]
+        delta_n=[]
+        most_likely_previous_states_n=[]
+        for state_i in range(n_states):
+            max_probability = 0 
+            most_likely_previous_state = None
+            for state_j in range(n_states):
+                value = delta[n-1][state_j] * A[state_j][state_i] * B[state_i][emission]
+                if value > max_probability:
+                    max_probability = value
+                    most_likely_previous_state = state_j
+            delta_n.append(max_probability)
+            most_likely_previous_states_n.append(most_likely_previous_state)
+        return delta_n, most_likely_previous_states_n
     
+            
     
     def output_vector(self, vector):
         string = "1 "
@@ -114,11 +176,17 @@ class HMM_model():
             string += " "
         print(string)
     
+    def output_nonvector(self, vector):
+        out_string = ""
+        for element in vector:
+            out_string = out_string + " " + str(element)
+        print(out_string)
+    
     
         
         
 
 object = HMM_model()
-object.run_task_1()
+object.run_task_2()
 #object.run_task_0()
 
