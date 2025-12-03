@@ -79,34 +79,22 @@ class HMM_model():
             output_vector.append(B[row_number][observation])
         return output_vector
     
-    def calculate_state_probabilities(self, A,previous_alpha):
-        # Calculates probability of being in certain state 
-        # Used in task 1
-        
-        output_vector = []
-        for row_index in range(len(A)):
-            row_sum = 0
-            for column_index in range(len(A[0])):
-                row_sum += A[row_index][column_index]*previous_alpha[column_index]
-            output_vector.append(row_sum)
-        return output_vector
+
     
     def forward_algorithm(self, A,B,pi,emissions):
         alpha = []
         
-        #Step 1
+        #Step 1 - Initialize
         B_column = self.column_from_B(B, emissions[0])
         alpha = self.element_wise_product(pi, B_column)
         
-        # Step 2
+        # Step 2 - Middle part
         for emission_number in range(1, len(emissions)):
             B_column = self.column_from_B(B, emissions[emission_number])
-            #state_probabilities = self.calculate_state_probabilities(A, alpha)
-            #alpha = self.element_wise_product(state_probabilities, B_column)
             state_probabilities = self.multiplication_vector_matrix(alpha, A)
             alpha = self.element_wise_product(state_probabilities, B_column)
         
-        # Step 3
+        # Step 3 - Final step
         total = 0
         for value in alpha:
             total += value
