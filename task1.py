@@ -14,16 +14,137 @@ class HMM_model():
     
     def run_task_1(self):
         A,B,pi, emissions = self.initialize_parameters(1)
-        value = self.forward_algorithm(A, B, pi, emissions)
-        print(value)
+        T = len(emissions) # Number of time steps
+
+        alpha = self.forward_algorithm(A, B, pi, emissions, T)
+         # Step 3 - Final step
+        print(sum(alpha[-1]))
         
     def run_task_2(self):
         A,B,pi, emissions = self.initialize_parameters(2)
         probable_emissions = self.viterbi_algorithm(A, B, pi, emissions)
         self.output_nonvector(probable_emissions)
         
-
+    def run_task_3(self):
+        # Initialize lambda
+        A,B,pi, emissions = self.initialize_parameters(2)
+        N = len(A) # Number of states
+        M = len(B[0]) # Number of different emissions
+        T = len(emissions) # Number of time steps
         
+       
+        
+        # Re-estimate lambda
+        improved = True
+        while improved:
+             # Compute alpha, beta, di-gamma and gamma
+            alpha = self.forward_algorithm( A,B,pi,emissions, T)
+            beta = self.backwards_algorithm(A,B,emissions)
+            di_gamma = self.di_gamma_function(A,B,emissions, alpha, beta, N, T)
+            gamma = self.gamma_function( di_gamma, N, T)
+            
+            # Re-estimate lambda
+            new_A = self.approximate_A(di_gamma, gamma, N, T)
+            new_B = self.approximate_B(emissions, gamma, N, T, M)
+            new_pi = self.approximate_pi(gamma, N)
+            
+            # Evaluate improvement
+            old_model_probability = sum(self.forward_algorithm(A, B, pi, emissions, T)[-1])
+            new_model_probability = sum(self.forward_algorithm(new_A, new_B, new_pi, emissions, T)[-1])
+            print(old_model_probability)
+            print(new_model_probability)
+            if new_model_probability <= old_model_probability:
+                improved = False
+            else:
+                A = new_A
+                B = new_B
+                pi = new_pi
+            
+    
+        
+        # Evaluate improvement
+        
+    def di_gamma_function(self, A,B,emissions, alpha, beta, N, T):
+        
+        final_alpha_values = sum(alpha[-1]) # This CAN NOT be zero, fix for large input
+        
+        # di_gamma is (T-1)*N*N
+        di_gamma  = [
+                        [
+                                [0.0]*N 
+                            for _ in range(N)
+                        ]
+                    for _ in range(T-1)
+                    ]
+        
+        
+        for t in range(0, T-1): # Thre can be no transition from the last time instance, thus T-1
+            for i in range(N):
+                for j in range(N):
+                    di_gamma[t][i][j] = alpha[t][i] *A[i][j] * B[j][emissions[t+1]]*beta[t+1][j] / final_alpha_values
+                    
+        return di_gamma
+    
+    def approximate_A(self, di_gamma, gamma, N, T):
+
+        A = [[0.0]*N for _ in range(N)]
+        
+        for i in range(N):
+            for j in range(N):
+                nominator = 0.0
+                denominator = 0.0
+                for t in range(T-1):
+                    nominator += di_gamma[t][i][j]
+                    denominator += gamma[t][i]    
+                if denominator != 0: # In case we believe that we never visit state i, denominator is 0.
+                    A[i][j] = nominator/denominator
+                else:
+                    A[i][j] = 0.0
+        
+        return A
+    
+    def approximate_B(self, emissions, gamma, N, T, M):
+        
+        B = [[0.0]*M for _ in range(N)]
+        
+        for j in range(N):
+            for k in range(M):
+                nominator = 0.0
+                denominator = 0.0
+                for t in range(T-1):
+                    if emissions[t]==k: # Implements the indicator function
+                        nominator += gamma[t][j]
+                    denominator += gamma[t][j]
+                if denominator != 0:
+                    B[j][k] = nominator/denominator
+                else:
+                    B[j][k] = 0.0
+        return B
+    
+    def approximate_pi(self, gamma, N):
+        pi = []
+        
+        for i in range(N):
+            pi.append(gamma[0][i])    
+        
+        return pi    
+                    
+                
+                
+        
+        
+    
+    def gamma_function(self, di_gamma, N, T):
+        
+        gamma = [[0.0]*N for _ in range(T-1)]
+        
+        for t in range(T-1): # Goes up till T-2 since di_gamma is only defined for t=[0,T-2]
+            for i in range(N):
+                gamma[t][i]= sum(di_gamma[t][i]) #Summarizes over all "j"
+                
+        # No gamma for all T, only up to T-1 (or T-2 using python index). Fix?
+        return gamma
+                                
     def initialize_parameters(self, task_number=0):
         A = self.matrix_from_input(sys.stdin.readline())
         B = self.matrix_from_input(sys.stdin.readline())
@@ -85,27 +206,45 @@ class HMM_model():
         for row_number in range(len(B)):
             output_vector.append(B[row_number][observation])
         return output_vector
-    
 
     
-    def forward_algorithm(self, A,B,pi,emissions):
+    def forward_algorithm(self, A,B,pi,emissions, T):
+        # Saves and returns entire alpha matrix. Implemented for task 3
         alpha = []
         
         #Step 1 - Initialize
         B_column = self.column_from_B(B, emissions[0])
-        alpha = self.element_wise_product(pi, B_column)
+        alpha.append(self.element_wise_product(pi, B_column))
         
         # Step 2 - Middle part
-        for emission_number in range(1, len(emissions)):
-            B_column = self.column_from_B(B, emissions[emission_number])
-            state_probabilities = self.multiplication_vector_matrix(alpha, A)
-            alpha = self.element_wise_product(state_probabilities, B_column)
+        for t in range(1, T):
+            B_column = self.column_from_B(B, emissions[t])
+            state_probabilities = self.multiplication_vector_matrix(alpha[t-1], A)
+            alpha.append(self.element_wise_product(state_probabilities, B_column))
         
-        # Step 3 - Final step
-        total = 0
-        for value in alpha:
-            total += value
-        return total
+        return alpha
+    
+    def backwards_algorithm(self, A,B,emissions):
+        T = len(emissions)
+        N = len(A) # Number of states
+        
+        beta = [[0.0]*N for _ in range(T)]
+
+        # Step 1 initialize
+        beta[T-1] = [1]*N
+        
+        # Step 2 - middle part
+        for t in range(T-2, -1, -1): # From T to 0 (but indexes start with 0, go to T-1)
+            for i in range(N): # For every state
+                total = 0
+                for j in range(N):
+                    total += beta[t+1][j] * A[i][j] * B[j][emissions[t+1]]
+                beta[t][i] = total
+
+        return beta
+        
+        
+
     
     def viterbi_algorithm(self, A, B, pi, emissions):
         delta = []
@@ -187,6 +326,6 @@ class HMM_model():
         
 
 object = HMM_model()
-object.run_task_2()
+object.run_task_3()
 #object.run_task_0()
 
