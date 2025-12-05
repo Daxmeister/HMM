@@ -1,7 +1,8 @@
 import sys
-
+import math
 
 class HMM_model():
+    
     def __init__(self):
         pass
         
@@ -38,8 +39,8 @@ class HMM_model():
         improved = True
         while improved:
              # Compute alpha, beta, di-gamma and gamma
-            alpha = self.forward_algorithm( A,B,pi,emissions, T)
-            beta = self.backwards_algorithm(A,B,emissions)
+            alpha, scale, log_probability = self.forward_algorithm_scaled( A,B,pi,emissions, T)
+            beta = self.backwards_algorithm_scaled(A,B,emissions, N, T, scale)
             di_gamma = self.di_gamma_function(A,B,emissions, alpha, beta, N, T)
             gamma = self.gamma_function( di_gamma, N, T)
             
@@ -66,7 +67,7 @@ class HMM_model():
         
     def di_gamma_function(self, A,B,emissions, alpha, beta, N, T):
         
-        final_alpha_values = sum(alpha[-1]) # This CAN NOT be zero, fix for large input
+        # final_alpha_values = sum(alpha[-1]) # This CAN NOT be zero, fix for large input. OLD
         
         # di_gamma is (T-1)*N*N
         di_gamma  = [
@@ -76,12 +77,21 @@ class HMM_model():
                         ]
                     for _ in range(T-1)
                     ]
-        
+        # After scaling, we need to recalculate the denominator at every step
+            
         
         for t in range(0, T-1): # Thre can be no transition from the last time instance, thus T-1
+            emission_t1 = emissions[t+1]
+            denominator_t = 0.0
+            # Denominator is recalculated for every t since scaling "accumulates"
             for i in range(N):
                 for j in range(N):
-                    di_gamma[t][i][j] = alpha[t][i] *A[i][j] * B[j][emissions[t+1]]*beta[t+1][j] / final_alpha_values
+                    denominator_t += alpha[t][i] * A[i][j] * B[j][emission_t1] * beta[t+1][j]
+                    
+            
+            for i in range(N):
+                for j in range(N):
+                    di_gamma[t][i][j] = alpha[t][i] *A[i][j] * B[j][emissions[t+1]]*beta[t+1][j] / denominator_t
                     
         return di_gamma
     
@@ -224,9 +234,60 @@ class HMM_model():
         
         return alpha
     
-    def backwards_algorithm(self, A,B,emissions):
-        T = len(emissions)
-        N = len(A) # Number of states
+    def forward_algorithm_scaled(self, A,B,pi,emissions, T):
+        # Saves and returns entire alpha matrix. Implemented for task 3
+        alpha = []
+        scale = [0.0]*T
+        
+        #Step 1 - Initialize at t=0
+        
+        # Calculate alpha at t=0
+        B_column = self.column_from_B(B, emissions[0])
+        alpha.append(self.element_wise_product(pi, B_column))
+        
+        # Scale alpha and save scaleing factor
+        # 1.0/sum is choosen as scaling factor so that all for time t the alpha vector holds a probability distribution for all states
+        scale[0] = 1.0 / sum(alpha[0]) # Calculate scaling factor. Scaling this way means that
+        alpha[0] = [value * scale[0] for value in alpha[0]] # Multiply every alpha by scaling factor
+        
+        
+        # Step 2 - Middle part
+        for t in range(1, T):
+            B_column = self.column_from_B(B, emissions[t])
+            state_probabilities = self.multiplication_vector_matrix(alpha[t-1], A)
+            alpha.append(self.element_wise_product(state_probabilities, B_column))
+            scale[t] = 1.0 / sum(alpha[t]) # Calculate scaling factor
+            alpha[t] = [value * scale[t] for value in alpha[t]] # Multiply every alpha by scaling factor
+        
+        # log probability - needed for baum-welch
+        log_probability = 0
+        for t in range(T):
+            log_probability += math.log(1 / scale[t]) # The math is important here - this is the log version of what problem 1 demands
+        
+        return alpha, scale, log_probability
+    
+    def backwards_algorithm_scaled(self, A,B,emissions, N, T, scale):
+        
+        beta = [[0.0]*N for _ in range(T)]
+        scale = [0.0]*T
+
+
+        # Step 1 initialize
+        beta[T-1] = [1]*N
+        
+        
+        # Step 2 - middle part
+        for t in range(T-2, -1, -1): # From T to 0 (but indexes start with 0, go to T-1)
+            for i in range(N): # For every state
+                total = 0
+                for j in range(N):
+                    total += beta[t+1][j] * A[i][j] * B[j][emissions[t+1]]
+                beta[t][i] = total * scale[t+1] # We use tha same scaling as we used for alpha for consistency
+
+        return beta
+    
+    
+    def backwards_algorithm(self, A,B,emissions, N, T):
         
         beta = [[0.0]*N for _ in range(T)]
 
